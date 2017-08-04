@@ -515,7 +515,7 @@ enum RequestResult Util::parse_http_api_request(const char* request, JsonObject*
 		std::strlen(it) != static_cast<unsigned long>(std::stol(request_obj->GetStr("Content-Length")))){
 			return JSON;
 		}
-		
+		PRINT("REMAINING DATA: " << it)
 		request_obj->parse(it);
 		return HTTP_API;
 	}

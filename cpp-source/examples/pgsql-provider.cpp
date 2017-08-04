@@ -60,9 +60,12 @@ int main(int argc, char** argv){
 		&id,
 		new Column("username"),
 		new Column("password", COL_HIDDEN),
+		new Column("primary_token", COL_HIDDEN),
+		new Column("secondary_token", COL_HIDDEN),
 		new Column("email"),
 		new Column("first_name"),
 		new Column("last_name"),
+		new Column("verified"),
 		&created_on
 	}, ACCESS_ADMIN);
 	
@@ -75,9 +78,18 @@ int main(int argc, char** argv){
 		&created_on
 	}, ACCESS_USER);
 	
+	PgSqlModel* threads = new PgSqlModel(connection_string, "threads", {
+		&id,
+		&owner_id,
+		new Column("access_id"),
+		new Column("name"),
+		&created_on
+	}, ACCESS_USER);
+	
 	PgSqlModel* posts = new PgSqlModel(connection_string, "posts", {
 		&id,
 		&owner_id,
+		new Column("thread_id"),
 		new Column("title"),
 		new Column("content"),
 		&created_on
@@ -86,6 +98,7 @@ int main(int argc, char** argv){
 	std::unordered_map<std::string, PgSqlModel*> db_tables = {
 		{users->table, users},
 		{poi->table, poi},
+		{threads->table, threads},
 		{posts->table, posts}
 	};
 	
@@ -100,32 +113,53 @@ int main(int argc, char** argv){
 		JsonObject* response = 0;
 		PRINT(request->stringify(true))
 
-		if(request->objectValues.count("table") &&
-		request->objectValues.count("token") &&
-		db_tables.count(request->objectValues["table"]->stringValue),
-		request->objectValues.count("operation")){
+		if(request->HasObj("table", STRING) &&
+		db_tables.count(request->GetStr("table")) &&
+		request->HasObj("token", STRING) &&
+		request->HasObj("operation", STRING)){
 			std::string& table_name = request->objectValues["table"]->stringValue;
 			PgSqlModel* table = db_tables[table_name];
 			std::string& operation = request->objectValues["operation"]->stringValue;
 			if(operation == "all"){
-				if(table->access_flags > 0){
-					JsonObject token;
-					try{
-						token.parse(encryptor.decrypt(request->objectValues["token"]->stringValue).c_str());
-					}catch(const std::exception& e){
-						PRINT(e.what())
-						response = PgSqlModel::Error("You cannot gain access to this.");
+				if(request->HasObj("page", STRING)){
+					if(table->access_flags > 0){
+						JsonObject token;
+						try{
+							token.parse(encryptor.decrypt(request->objectValues["token"]->stringValue).c_str());
+						}catch(const std::exception& e){
+							PRINT(e.what())
+							response = PgSqlModel::Error("You cannot gain access to this.");
+						}
+						if(token.objectValues["username"]->stringValue != admin){
+							response = PgSqlModel::Error("You cannot gain access to this.");
+						}
 					}
-					if(token.objectValues["username"]->stringValue != admin){
-						response = PgSqlModel::Error("You cannot gain access to this.");
+					if(response == 0){
+						int page = 0;
+						try{
+							page = std::stoi(request->GetStr("page"));
+						}catch(const std::exception& e){
+							ERROR("Parsing page: " << request->GetStr("page"))
+							PRINT(e.what())
+							page = 0;
+						}
+						response = table->All(page);
 					}
-				}
-				if(response == 0){
-					response = table->All();
+				}else{
+					response = PgSqlModel::Error("Missing \"page\" JSON string.");
 				}
 			}else if(operation == "where"){
 				if(request->HasObj("key", STRING) &&
-				request->HasObj("value", STRING)){
+				request->HasObj("value", STRING) &&
+				request->HasObj("page", STRING)){
+					int page = 0;
+					try{
+						page = std::stoi(request->GetStr("page"));
+					}catch(const std::exception& e){
+						ERROR("Parsing page: " << request->GetStr("page"))
+						PRINT(e.what())
+						page = 0;
+					}
 					if(table->access_flags & ACCESS_ADMIN){
 						JsonObject token;
 						try{
@@ -139,23 +173,24 @@ int main(int argc, char** argv){
 						}
 					}else if(table->access_flags & ACCESS_USER &&
 					request->objectValues["key"]->stringValue == "username"){
-						JsonObject* user = users->Where("username", request->GetStr("value"));
+						JsonObject* user = users->Where("username", request->GetStr("value"), 0);
 						if(user->objectValues.count("error")){
 							response = user;
 						}else{
-							response = table->Where("owner_id", user->arrayValues[0]->GetStr("id"));
+							response = table->Where("owner_id", user->arrayValues[0]->GetStr("id"), page);
 							delete user;
 						}
 					}
 					if(response == 0){
-						response = table->Where(request->GetStr("key"), request->GetStr("value"));
+						response = table->Where(request->GetStr("key"), request->GetStr("value"), page);
 					}
 				}else{
-					response = PgSqlModel::Error("Missing \"key\" and/or \"value\" JSON strings.");
+					response = PgSqlModel::Error("Missing \"key\", \"value\" and/or \"page\" JSON strings.");
 				}
 			}else if(operation == "insert"){
 				if(request->HasObj("values", ARRAY)){
 					if(request->objectValues["values"]->arrayValues.size() != table->num_insert_values){
+						PRINT("Number of insert values: " << table->num_insert_values)
 						response = PgSqlModel::Error("Incorrect number of values");
 					}else if(table->access_flags & ACCESS_USER){
 						JsonObject token;

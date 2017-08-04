@@ -40,8 +40,8 @@ public:
 	static JsonObject* Error(std::string message);
 	bool HasColumn(std::string name);
 	
-	JsonObject* All();
-	JsonObject* Where(std::string key, std::string value);
+	JsonObject* All(int page);
+	JsonObject* Where(std::string key, std::string value, int page);
 	JsonObject* Insert(std::vector<JsonObject*> values);
 	
 	bool IsOwner(std::string id, std::string owner_id);
@@ -52,4 +52,5 @@ public:
 private:
 	pqxx::connection conn;
 	std::vector<Column*> cols;
+	int page_size;
 };

@@ -1,12 +1,12 @@
 #include "symmetric-tcp-client.hpp"
 #include "http-api.hpp"
 
-static std::string All(const std::string& table, const std::string& token = std::string()){
-	return "{\"table\":\"" + table + "\",\"operation\":\"all\",\"token\":\"" + token + "\"}";
+static std::string All(const std::string& table, const std::string& page, const std::string& token = std::string()){
+	return "{\"table\":\"" + table + "\",\"operation\":\"all\",\"token\":\"" + token + "\",\"page\":\"" + page + "\"}";
 }
 
-static std::string Where(const std::string& table, const std::string& key, const std::string& value, const std::string& token = std::string()){
-	return "{\"table\":\"" + table + "\",\"operation\":\"where\",\"token\":\"" + token + "\",\"key\":\"" + key + "\",\"value\":\"" + value + "\"}";
+static std::string Where(const std::string& table, const std::string& key, const std::string& value, const std::string& page, const std::string& token = std::string()){
+	return "{\"table\":\"" + table + "\",\"operation\":\"where\",\"token\":\"" + token + "\",\"key\":\"" + key + "\",\"value\":\"" + value + "\",\"page\":\"" + page + "\"}";
 }
 
 static std::string Insert(const std::string& table, JsonObject* values, const std::string& token = std::string()){
@@ -80,21 +80,25 @@ int main(int argc, char **argv){
 	*/
 
 	api.route("GET", "/users", [&](JsonObject* json)->std::string{
-		return provider.communicate(All("users",
+		std::string page = "0";
+		if(json->HasObj("page", STRING)){
+			page = json->GetStr("page");
+		}
+		return provider.communicate(All("users", page,
 			json->GetStr("token")));
 	}, {{"token", STRING}});
 
 	api.route("GET", "/user", [&](JsonObject* json)->std::string{
 		return provider.communicate(Where("users",
 			"username",
-			json->GetStr("username"),
+			json->GetStr("username"), "0",
 			json->GetStr("token")));
 	}, {{"username", STRING}, {"token", STRING}});
 	
 	api.route("POST", "/user", [&](JsonObject* json)->std::string{	
 		return provider.communicate(Insert("users",
 			json->objectValues["values"]));
-	}, {{"values", ARRAY}}, std::chrono::hours(6)); // Can only register every 6 hours.
+	}, {{"values", ARRAY}}, std::chrono::minutes(1)); // Can only register every 6 hours.
 	
 	api.route("PUT", "/user", [&](JsonObject* json)->std::string{	
 		return provider.communicate(Update("users",
@@ -110,12 +114,16 @@ int main(int argc, char **argv){
 	}, {{"username", STRING}, {"password", STRING}}, std::chrono::seconds(1));
 
 	/*
-		BLOG
+		THREADS
 	*/
 
-	api.route("GET", "/blog", [&](JsonObject* json)->std::string{
-		return provider.communicate(Where("posts", "username", json->GetStr("username")));
-	}, {{"username", STRING}});
+	api.route("GET", "/threads", [&](JsonObject* json)->std::string{
+		std::string page = "0";
+		if(json->HasObj("page", STRING)){
+			page = json->GetStr("page");
+		}
+		return provider.communicate(All("threads", page));
+	});
 
 	api.route("POST", "/blog", [&](JsonObject* json)->std::string{
 		return provider.communicate(Insert("posts",
@@ -134,10 +142,15 @@ int main(int argc, char **argv){
 		POI
 	*/
 
-	api.route("GET", "/poi", [&](JsonObject* json)->std::string{
+	api.route("GET", "/poi", [&](JsonObject* json)->std::string{		
+		std::string page = "0";
+		if(json->HasObj("page", STRING)){
+			page = json->GetStr("page");
+		}
 		return provider.communicate(Where("poi",
 			json->GetStr("key"),
-			json->GetStr("value")));
+			json->GetStr("value"),
+			page));
 	}, {{"key", STRING}, {"value", STRING}});
 
 	api.route("POST", "/poi", [&](JsonObject* json)->std::string{

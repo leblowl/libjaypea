@@ -15,7 +15,7 @@
 #include "pgsql-model.hpp"
 
 PgSqlModel::PgSqlModel(std::string new_conn, std::string new_table, std::vector<Column*> new_cols, unsigned char new_access_flags)
-:table(new_table), access_flags(new_access_flags), conn(new_conn), cols(new_cols){
+:table(new_table), access_flags(new_access_flags), conn(new_conn), cols(new_cols), page_size(10){
 	this->num_insert_values = 0;
 	for(size_t i = 0; i < this->cols.size(); ++i){
 		if(!(this->cols[i]->flags & COL_AUTO) &&
@@ -64,19 +64,21 @@ JsonObject* PgSqlModel::ResultToJson(pqxx::result::tuple row){
 	return result_json;
 }
 
-JsonObject* PgSqlModel::All(){
+JsonObject* PgSqlModel::All(int page){
+	std::string offset = std::to_string(page * this->page_size);
 	pqxx::work txn(this->conn);
-	pqxx::result res = SqlWrap(&txn, "SELECT * FROM " + this->table + ';');
+	pqxx::result res = SqlWrap(&txn, "SELECT * FROM " + this->table + " ORDER BY id LIMIT " + std::to_string(this->page_size) + " OFFSET " + offset + ";");
 	return this->ResultToJson(&res);
 }
 
-JsonObject* PgSqlModel::Where(std::string key, std::string value){
+JsonObject* PgSqlModel::Where(std::string key, std::string value, int page){
 	if(!this->HasColumn(key)){
 		return Error("Bad key.");
 	}
-	
+
+	std::string offset = std::to_string(page * this->page_size);
 	pqxx::work txn(this->conn);
-	pqxx::result res = SqlWrap(&txn, "SELECT * FROM " + this->table + " WHERE " + key + " = " + txn.quote(value) + " ORDER BY created_on DESC;");
+	pqxx::result res = SqlWrap(&txn, "SELECT * FROM " + this->table + " WHERE " + key + " = " + txn.quote(value) + " ORDER BY created_on DESC LIMIT " + std::to_string(this->page_size) + " OFFSET " + offset + ";");
 	
 	if(res.size() == 0){
 		return Error("Bad value.");
